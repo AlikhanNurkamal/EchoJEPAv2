@@ -1,0 +1,3 @@
+[submodule "EchoJEPA"]
+	path = EchoJEPA
+	url = git@github.com:bowang-lab/EchoJEPA.git
