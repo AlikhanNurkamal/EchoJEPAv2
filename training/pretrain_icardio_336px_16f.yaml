@@ -1,0 +1,138 @@
+# EchoJEPAv2 pretraining config — iCardio dataset
+#
+# Data: WebDataset .tar shards from preprocessing_alikhan/create_webdataset.py
+#   Each sample: (T, 336, 336, 3) uint8 RGB at 24 fps, fan-ROI-cropped
+#
+# Model: ViT-Giant/16 (same as the original EchoJEPA echo pretrain config)
+#   To use ViT-Large instead: set model_name: vit_large and adjust pred_embed_dim
+#
+# IMPORTANT: Before running, set the paths below:
+#   folder:         where checkpoints will be saved
+#   datasets:       path to the directory containing shard-*.tar files
+#
+# Launch with:
+#   cd EchoJEPAv2/EchoJEPA
+#   python app/main.py --fname ../training/pretrain_icardio_336px_16f.yaml --devices cuda:0 cuda:1 ...
+
+app: vjepa
+
+# ── Output ────────────────────────────────────────────────────────────────────
+folder: /home/ahmedaly/iCardio/checkpoints/pretrain/icardio_vitl16_336px_16f
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+data:
+  dataset_type: WebDatasetVideoDataset
+  datasets:
+    - /hdd2/ahmedaly/preprocessed_by_alikhan_for_echojepa
+    - /hdd1/ahmedaly/preprocessed_by_alikhan_for_echojepa
+  datasets_weights:
+    - 1.0
+    - 1.0
+  batch_size: 24           # per-GPU; scale with GPU count
+  crop_size: 336
+  dataset_fpcs:
+    - 16                   # frames per clip
+  fps: 24                  # sampling fps (stride = fps_stored // fps = 24//24 = 1)
+  num_workers: 2
+  patch_size: 16
+  persistent_workers: true
+  pin_mem: false
+  tubelet_size: 2
+
+# ── Data augmentation ─────────────────────────────────────────────────────────
+data_aug:
+  auto_augment: false
+  motion_shift: false
+  random_resize_aspect_ratio:
+    - 0.9
+    - 1.1
+  random_resize_scale:
+    - 0.5
+    - 1.0
+  reprob: 0.0
+
+# ── Loss ──────────────────────────────────────────────────────────────────────
+loss:
+  loss_exp: 1.0
+
+# ── Masking ───────────────────────────────────────────────────────────────────
+mask:
+  # Context mask: 8 small spatiotemporal blocks
+  - aspect_ratio: [0.75, 1.5]
+    full_complement: false
+    max_keep: null
+    max_temporal_keep: 1.0
+    num_blocks: 8
+    spatial_scale: [0.15, 0.15]
+    temporal_scale: [1.0, 1.0]
+  # Target mask: 2 large blocks (what the predictor must predict)
+  - aspect_ratio: [0.75, 1.5]
+    full_complement: false
+    max_keep: null
+    max_temporal_keep: 1.0
+    num_blocks: 2
+    spatial_scale: [0.70, 0.70]
+    temporal_scale: [1.0, 1.0]
+
+# ── Weights & Biases ──────────────────────────────────────────────────────────
+wandb:
+  enable: true
+  project: echojepa-pretrain         # W&B project name
+  name: icardio-vitl16-336px-16f     # run display name
+  # run_id: null                     # set to resume a specific W&B run
+
+# ── Meta ──────────────────────────────────────────────────────────────────────
+meta:
+  dtype: bfloat16
+  load_checkpoint: false    # set true to resume from latest.pt in folder
+  read_checkpoint: null     # set to a specific .pt filename to resume from it
+  save_every_freq: 5        # save a named checkpoint every N epochs
+  seed: 42
+  use_sdpa: true
+  checkpoints_to_keep: 3
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+# Using ViT-Large (smaller, faster to train than ViT-Giant)
+# Switch to vit_giant_xformers for max performance (requires more VRAM)
+model:
+  model_name: vit_large
+  pred_depth: 12
+  pred_embed_dim: 384
+  pred_num_heads: 12
+  uniform_power: true
+  use_activation_checkpointing: true  # saves VRAM
+  use_mask_tokens: true
+  num_mask_tokens: 10                 # = len(mask) * len(dataset_fpcs) = 2 * 1
+  use_rope: true
+  use_silu: false
+  zero_init_mask_tokens: true
+  compile_model: false                # set true for speed after confirming correctness
+
+# ── Optimization ──────────────────────────────────────────────────────────────
+optimization:
+  is_anneal: false
+  force_load_pretrain: false
+  anneal_ckpt: null
+
+  ema: [0.99925, 0.99925]
+  weight_decay: 0.04
+  final_weight_decay: 0.04
+
+  # ipe: iterations per epoch. Set to null to use dataset length automatically.
+  # For WebDatasetVideoDataset, set explicitly to control epoch granularity.
+  # Rule of thumb: total_samples / (batch_size * num_gpus)
+  # Example: 1.4M samples / (24 * 4 GPUs) ≈ 14,583 → round to 1000 for faster epochs
+  ipe: 1000
+  ipe_scale: 1.0
+
+  # Learning rate scaled from the 3072-global-batch V-JEPA2 recipe:
+  #   lr = 5.25e-4 * (global_batch / 3072)
+  # With 4 GPUs × batch_size=24 = global_batch=96:
+  #   lr = 5.25e-4 * (96/3072) ≈ 1.64e-5
+  # Adjust these if you change num_gpus or batch_size.
+  start_lr: 4.0e-6
+  lr: 1.64e-5
+  final_lr: 1.64e-5
+
+  warmup: 40       # epochs of linear LR warmup
+  epochs: 200      # total training epochs
