@@ -86,10 +86,10 @@ meta:
   dtype: bfloat16
   load_checkpoint: false    # set true to resume from latest.pt in folder
   read_checkpoint: null     # set to a specific .pt filename to resume from it
-  save_every_freq: 5        # save a named checkpoint every N epochs
+  save_every_freq: -1       # disabled: no named per-epoch checkpoints
   seed: 42
   use_sdpa: true
-  checkpoints_to_keep: 3
+  checkpoints_to_keep: 1    # only keep latest.pt
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 # Using ViT-Large (smaller, faster to train than ViT-Giant)

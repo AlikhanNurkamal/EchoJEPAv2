@@ -1,0 +1,45 @@
+{
+  "checkpoint": "/home/ahmedaly/iCardio/EchoJEPAv2/EchoJEPA/~/iCardio/EchoJEPAv2/pretrain_icardio_336px_16f_text/latest.pt",
+  "num_samples": 2000,
+  "feature_dim": 1024,
+  "quality_metrics": {
+    "uniformity": -0.31519827246665955,
+    "effective_rank": 33.84113311767578,
+    "avg_sim_10nn": 0.9942541122436523,
+    "avg_sim_1nn": 0.9967265725135803,
+    "sim_mean": 0.9078938364982605,
+    "sim_std": 0.09913042932748795
+  },
+  "retrieval": {
+    "study": {
+      "recall@1": 0.45845845341682434,
+      "precision@1": 0.45845845341682434,
+      "recall@5": 0.7142142057418823,
+      "precision@5": 0.31421419978141785,
+      "recall@10": 0.8018018007278442,
+      "precision@10": 0.24954955279827118,
+      "recall@20": 0.879879891872406,
+      "precision@20": 0.18821321427822113
+    },
+    "view": {
+      "recall@1": 0.5147573947906494,
+      "precision@1": 0.5147573947906494,
+      "recall@5": 0.6938469409942627,
+      "precision@5": 0.4764382243156433,
+      "recall@10": 0.7923961877822876,
+      "precision@10": 0.4587293565273285,
+      "recall@20": 0.8844422101974487,
+      "precision@20": 0.4430215060710907
+    },
+    "shard": {
+      "recall@1": 0.5929999947547913,
+      "precision@1": 0.5929999947547913,
+      "recall@5": 0.8960000276565552,
+      "precision@5": 0.4959000051021576,
+      "recall@10": 0.965499997138977,
+      "precision@10": 0.4483500123023987,
+      "recall@20": 0.9925000071525574,
+      "precision@20": 0.40070000290870667
+    }
+  }
+}

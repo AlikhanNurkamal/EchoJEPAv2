@@ -1,0 +1,141 @@
+# EchoJEPAv2 text-conditioned pretraining config — iCardio dataset
+#
+# Identical to pretrain_icardio_336px_16f.yaml except:
+#   - app: vjepa_text  (text-conditioned training loop)
+#   - Reads .metadata.json from each tar shard to extract clinical text
+#   - Encodes text with frozen BioClinicalBERT (emilyalsentzer/Bio_ClinicalBERT)
+#   - Predictor has GatedTextCrossAttention after its self-attention blocks
+#
+# The video encoder (ViT-Large) is IDENTICAL to the baseline.
+# Downstream evaluation uses the encoder only — no text required at eval time.
+#
+# Launch with:
+#   cd EchoJEPAv2/EchoJEPA
+#   python app/main.py --fname ../training/pretrain_icardio_336px_16f_text.yaml \
+#       --devices cuda:0 cuda:1 ...
+
+app: vjepa_text
+
+# ── Output ────────────────────────────────────────────────────────────────────
+# Use a separate folder to keep baselines and text runs independent
+folder: /home/ahmedaly/iCardio/EchoJEPAv2/pretrain_icardio_336px_16f_text
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+data:
+  # NOTE: dataset_type is not used by vjepa_text (it calls make_webdatasetvideodataset_text directly)
+  dataset_type: WebDatasetVideoDatasetText
+  datasets:
+    - /hdd2/ahmedaly/preprocessed_by_alikhan_for_echojepa
+    - /hdd1/ahmedaly/preprocessed_by_alikhan_for_echojepa
+  batch_size: 24           # per-GPU; scale with GPU count
+  crop_size: 336
+  dataset_fpcs:
+    - 16                   # frames per clip
+  fps: 24
+  num_clips: 1
+  num_workers: 2
+  patch_size: 16
+  persistent_workers: true
+  pin_mem: false
+  tubelet_size: 2
+
+# ── Text conditioning (new) ───────────────────────────────────────────────────
+text:
+  # HuggingFace model name for both the tokeniser (in MaskCollatorText) and
+  # the frozen encoder (BioClinicalBERTEncoder in the training loop).
+  model_name: emilyalsentzer/Bio_ClinicalBERT
+  # BioClinicalBERT-base hidden size.  Change if using a larger BERT variant.
+  text_dim: 768
+  # Tokenisation: pad/truncate all study texts to this many tokens.
+  max_text_len: 256
+  # Number of heads in GatedTextCrossAttention inside the predictor.
+  # Must divide pred_embed_dim (384 / 8 = 48 per head).
+  cross_attn_heads: 8
+
+# ── Data augmentation ─────────────────────────────────────────────────────────
+data_aug:
+  auto_augment: false
+  motion_shift: false
+  random_resize_aspect_ratio:
+    - 0.9
+    - 1.1
+  random_resize_scale:
+    - 0.5
+    - 1.0
+  reprob: 0.0
+
+# ── Loss ──────────────────────────────────────────────────────────────────────
+loss:
+  loss_exp: 1.0
+
+# ── Masking ───────────────────────────────────────────────────────────────────
+mask:
+  # Context mask: 8 small spatiotemporal blocks
+  - aspect_ratio: [0.75, 1.5]
+    full_complement: false
+    max_keep: null
+    max_temporal_keep: 1.0
+    num_blocks: 8
+    spatial_scale: [0.15, 0.15]
+    temporal_scale: [1.0, 1.0]
+  # Target mask: 2 large blocks (what the predictor must predict)
+  - aspect_ratio: [0.75, 1.5]
+    full_complement: false
+    max_keep: null
+    max_temporal_keep: 1.0
+    num_blocks: 2
+    spatial_scale: [0.70, 0.70]
+    temporal_scale: [1.0, 1.0]
+
+# ── Weights & Biases ──────────────────────────────────────────────────────────
+wandb:
+  enable: true
+  project: echojepa-pretrain
+  name: icardio-vitl16-336px-16f-text    # distinct name for comparison
+  # run_id: null
+
+# ── Meta ──────────────────────────────────────────────────────────────────────
+meta:
+  dtype: bfloat16
+  load_checkpoint: false
+  read_checkpoint: null
+  save_every_freq: -1
+  seed: 42
+  use_sdpa: true
+  checkpoints_to_keep: 1
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+# Same ViT-Large encoder as the baseline for a fair comparison
+model:
+  model_name: vit_large
+  pred_depth: 12
+  pred_embed_dim: 384
+  pred_num_heads: 12
+  uniform_power: true
+  use_activation_checkpointing: true
+  use_mask_tokens: true
+  num_mask_tokens: 10
+  use_rope: true
+  use_silu: false
+  zero_init_mask_tokens: true
+  compile_model: false
+
+# ── Optimization ──────────────────────────────────────────────────────────────
+optimization:
+  is_anneal: false
+  force_load_pretrain: false
+  anneal_ckpt: null
+
+  ema: [0.99925, 0.99925]
+  weight_decay: 0.04
+  final_weight_decay: 0.04
+
+  ipe: 1000
+  ipe_scale: 1.0
+
+  start_lr: 4.0e-6
+  lr: 1.64e-5
+  final_lr: 1.64e-5
+
+  warmup: 40
+  epochs: 200

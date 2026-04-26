@@ -1,0 +1,75 @@
+{
+  "checkpoint": "/home/ahmedaly/iCardio/EchoJEPAv2/EchoJEPA/~/iCardio/EchoJEPAv2/pretrain_icardio_336px_16f_text/latest.pt",
+  "num_train": 5000,
+  "num_val": 1000,
+  "num_classes": 24,
+  "classes": [
+    "A2C",
+    "A2C Zoomed Mitral",
+    "A3C",
+    "A4C",
+    "A4C Zoomed LV",
+    "A4C Zoomed Mitral",
+    "A4C Zoomed RV",
+    "A5C",
+    "A5C Zoomed Aorta",
+    "PLAX Aortic Cusps",
+    "PLAX Mitral Cusps",
+    "PLAX Pericardial",
+    "PLAX Standard",
+    "PSAX Apex",
+    "PSAX Mitral",
+    "PSAX Papillary",
+    "PSAX Pulmonary",
+    "PSAX Zoomed Out",
+    "PSAXA Zoomed Aorta",
+    "RVIT",
+    "SUB IVC",
+    "SUB Short Axis",
+    "Subcostal Standard",
+    "Suprasternal Notch"
+  ],
+  "best_lr": 0.0005,
+  "best_wd": 0.01,
+  "best_top1_acc": 0.12200000882148743,
+  "best_top5_acc": 0.37400001287460327,
+  "all_runs": [
+    {
+      "lr": 0.01,
+      "wd": 0.0001,
+      "val_acc": 0.1210000067949295,
+      "top5_acc": 0.4189999997615814
+    },
+    {
+      "lr": 0.01,
+      "wd": 0.01,
+      "val_acc": 0.1210000067949295,
+      "top5_acc": 0.41499999165534973
+    },
+    {
+      "lr": 0.001,
+      "wd": 0.0001,
+      "val_acc": 0.10600000619888306,
+      "top5_acc": 0.3449999988079071
+    },
+    {
+      "lr": 0.001,
+      "wd": 0.01,
+      "val_acc": 0.10700000822544098,
+      "top5_acc": 0.4020000100135803
+    },
+    {
+      "lr": 0.0005,
+      "wd": 0.0001,
+      "val_acc": 0.1120000034570694,
+      "top5_acc": 0.40400001406669617
+    },
+    {
+      "lr": 0.0005,
+      "wd": 0.01,
+      "val_acc": 0.12200000882148743,
+      "top5_acc": 0.37400001287460327
+    }
+  ],
+  "classification_report": "                    precision    recall  f1-score   support\n\n               A2C     0.0000    0.0000    0.0000        59\n A2C Zoomed Mitral     0.2857    0.1333    0.1818        30\n               A3C     0.0000    0.0000    0.0000        68\n               A4C     0.0000    0.0000    0.0000       117\n     A4C Zoomed LV     0.2059    0.1628    0.1818        43\n A4C Zoomed Mitral     0.0000    0.0000    0.0000         7\n     A4C Zoomed RV     0.0000    0.0000    0.0000         5\n               A5C     0.0000    0.0000    0.0000        56\n  A5C Zoomed Aorta     0.0000    0.0000    0.0000         9\n PLAX Aortic Cusps     0.1111    0.1250    0.1176         8\n PLAX Mitral Cusps     0.2000    0.2000    0.2000        20\n  PLAX Pericardial     0.0000    0.0000    0.0000        53\n     PLAX Standard     0.1237    0.7595    0.2128        79\n         PSAX Apex     0.2857    0.0556    0.0930        36\n       PSAX Mitral     0.2000    0.0746    0.1087        67\n    PSAX Papillary     0.0000    0.0000    0.0000        55\n    PSAX Pulmonary     0.0000    0.0000    0.0000         1\n   PSAX Zoomed Out     0.0870    0.1034    0.0945        58\nPSAXA Zoomed Aorta     0.1111    0.2273    0.1493        22\n              RVIT     0.1111    0.1961    0.1418        51\n           SUB IVC     1.0000    0.0185    0.0364        54\n    SUB Short Axis     0.0303    0.1111    0.0476         9\nSubcostal Standard     0.2258    0.2222    0.2240        63\nSuprasternal Notch     1.0000    0.0667    0.1250        30\n\n          accuracy                         0.1220      1000\n         macro avg     0.1657    0.1023    0.0798      1000\n      weighted avg     0.1674    0.1220    0.0819      1000\n"
+}

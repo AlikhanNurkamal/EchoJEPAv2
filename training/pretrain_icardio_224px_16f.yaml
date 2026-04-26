@@ -1,0 +1,120 @@
+# EchoJEPAv2 pretraining config — iCardio dataset
+# Matches EchoJEPA-L (vitl16) recipe as closely as possible.
+# Differences from EchoJEPA-L:
+#   - crop_size: 224 (same; our shards are 336px, cropped down during training)
+#   - 2 GPUs instead of 8 → batch_size=128/GPU → global_batch=256
+#   - lr scaled proportionally: 5.25e-4 * (256/3072) = 4.375e-5
+#   - dataset: WebDatasetVideoDataset (iCardio shards on hdd1+hdd2)
+#
+# Launch:
+#   cd EchoJEPAv2/EchoJEPA
+#   python app/main.py --fname ../training/pretrain_icardio_224px_16f.yaml \
+#                      --devices cuda:0 cuda:1
+
+app: vjepa
+
+# ── Output ────────────────────────────────────────────────────────────────────
+folder: /home/ahmedaly/iCardio/checkpoints/pretrain/icardio_vitl16_224px_16f
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+data:
+  dataset_type: WebDatasetVideoDataset
+  datasets:
+    - /hdd2/ahmedaly/preprocessed_by_alikhan_for_echojepa
+    - /hdd1/ahmedaly/preprocessed_by_alikhan_for_echojepa
+  datasets_weights:
+    - 1.0
+    - 1.0
+  batch_size: 128          # per-GPU; 2 GPUs → global_batch = 256
+  crop_size: 224
+  patch_size: 16
+  dataset_fpcs:
+    - 16
+  fps: 8                   # sample at 8fps → 16 frames covers ~2s (full cardiac cycle)
+  tubelet_size: 2
+  num_workers: 8
+  persistent_workers: true
+  pin_mem: true
+
+# ── Data augmentation ─────────────────────────────────────────────────────────
+data_aug:
+  auto_augment: false
+  motion_shift: false
+  random_resize_aspect_ratio:
+    - 0.9
+    - 1.1
+  random_resize_scale:
+    - 0.5
+    - 1.0
+  reprob: 0.0
+
+# ── Loss ──────────────────────────────────────────────────────────────────────
+loss:
+  loss_exp: 1.0
+
+# ── Masking ───────────────────────────────────────────────────────────────────
+mask:
+  - aspect_ratio: [0.75, 1.5]
+    full_complement: false
+    max_keep: null
+    max_temporal_keep: 1.0
+    num_blocks: 8
+    spatial_scale: [0.15, 0.15]
+    temporal_scale: [1.0, 1.0]
+  - aspect_ratio: [0.75, 1.5]
+    full_complement: false
+    max_keep: null
+    max_temporal_keep: 1.0
+    num_blocks: 2
+    spatial_scale: [0.70, 0.70]
+    temporal_scale: [1.0, 1.0]
+
+# ── Weights & Biases ──────────────────────────────────────────────────────────
+wandb:
+  enable: true
+  project: echojepa-pretrain
+  name: icardio-vitl16-224px-16f-8fps
+
+# ── Meta ──────────────────────────────────────────────────────────────────────
+meta:
+  dtype: bfloat16
+  load_checkpoint: false
+  read_checkpoint: null
+  save_every_freq: -1       # no per-epoch named checkpoints
+  seed: 234                 # same seed as EchoJEPA-L
+  use_sdpa: true
+  checkpoints_to_keep: 1    # only keep latest.pt
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+model:
+  model_name: vit_large
+  pred_depth: 12
+  pred_embed_dim: 384
+  pred_num_heads: 12
+  uniform_power: true
+  use_activation_checkpointing: true
+  use_mask_tokens: true
+  num_mask_tokens: 10
+  use_rope: true
+  zero_init_mask_tokens: true
+
+# ── Optimization ──────────────────────────────────────────────────────────────
+optimization:
+  is_anneal: false
+  force_load_pretrain: false
+  anneal_ckpt: null
+
+  ema: [0.99925, 0.99925]
+  weight_decay: 0.04
+  final_weight_decay: 0.04
+
+  ipe: 300
+  ipe_scale: 1.25
+
+  # LR scaled from 3072-global-batch recipe: 5.25e-4 * (256/3072) = 4.375e-5
+  start_lr: 4.375e-6        # warmup starts at lr/10
+  lr: 4.375e-5
+  final_lr: 4.375e-5        # constant after warmup (cooldown handled separately)
+
+  warmup: 40                # same as EchoJEPA-L
+  epochs: 240               # same as EchoJEPA-L pretrain phase

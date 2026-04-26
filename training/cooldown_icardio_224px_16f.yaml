@@ -1,0 +1,119 @@
+# EchoJEPAv2 cooldown config — iCardio dataset
+# Run this after pretrain_icardio_224px_16f.yaml completes.
+# Matches EchoJEPA-L cooldown recipe: linear LR decay from 4.375e-5 → 1e-6 over 80 epochs.
+#
+# Launch:
+#   cd EchoJEPAv2/EchoJEPA
+#   python app/main.py --fname ../training/cooldown_icardio_224px_16f.yaml \
+#                      --devices cuda:0 cuda:1
+
+app: vjepa
+
+# ── Output (new folder — do not overwrite pretrain checkpoints) ───────────────
+folder: /home/ahmedaly/iCardio/checkpoints/cooldown/icardio_vitl16_224px_16f
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+data:
+  dataset_type: WebDatasetVideoDataset
+  datasets:
+    - /hdd2/ahmedaly/preprocessed_by_alikhan_for_echojepa
+    - /hdd1/ahmedaly/preprocessed_by_alikhan_for_echojepa
+  datasets_weights:
+    - 1.0
+    - 1.0
+  batch_size: 128
+  crop_size: 224
+  patch_size: 16
+  dataset_fpcs:
+    - 16
+  fps: 8
+  tubelet_size: 2
+  num_workers: 8
+  persistent_workers: true
+  pin_mem: true
+
+# ── Data augmentation ─────────────────────────────────────────────────────────
+data_aug:
+  auto_augment: false
+  motion_shift: false
+  random_resize_aspect_ratio:
+    - 0.9
+    - 1.1
+  random_resize_scale:
+    - 0.5
+    - 1.0
+  reprob: 0.0
+
+# ── Loss ──────────────────────────────────────────────────────────────────────
+loss:
+  loss_exp: 1.0
+
+# ── Masking ───────────────────────────────────────────────────────────────────
+mask:
+  - aspect_ratio: [0.75, 1.5]
+    full_complement: false
+    max_keep: null
+    max_temporal_keep: 1.0
+    num_blocks: 8
+    spatial_scale: [0.15, 0.15]
+    temporal_scale: [1.0, 1.0]
+  - aspect_ratio: [0.75, 1.5]
+    full_complement: false
+    max_keep: null
+    max_temporal_keep: 1.0
+    num_blocks: 2
+    spatial_scale: [0.70, 0.70]
+    temporal_scale: [1.0, 1.0]
+
+# ── Weights & Biases ──────────────────────────────────────────────────────────
+wandb:
+  enable: true
+  project: echojepa-pretrain
+  name: icardio-vitl16-224px-16f-8fps-cooldown
+
+# ── Meta ──────────────────────────────────────────────────────────────────────
+meta:
+  dtype: bfloat16
+  load_checkpoint: true     # resume cooldown if preempted
+  read_checkpoint: null
+  save_every_freq: -1
+  seed: 239                 # same as EchoJEPA-L cooldown
+  use_sdpa: true
+  checkpoints_to_keep: 1
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+model:
+  model_name: vit_large
+  pred_depth: 12
+  pred_embed_dim: 384
+  pred_num_heads: 12
+  uniform_power: true
+  use_activation_checkpointing: true
+  use_mask_tokens: true
+  num_mask_tokens: 10
+  use_rope: true
+  zero_init_mask_tokens: true
+
+# ── Optimization ──────────────────────────────────────────────────────────────
+optimization:
+  is_anneal: true           # linear LR decay (cooldown switch)
+  resume_anneal: true
+  force_load_pretrain: true
+
+  # Point to the final pretrain checkpoint
+  anneal_ckpt: /home/ahmedaly/iCardio/checkpoints/pretrain/icardio_vitl16_224px_16f/latest.pt
+
+  ema: [0.99925, 0.99925]
+  weight_decay: 0.04
+  final_weight_decay: 0.04
+
+  ipe: 300
+  ipe_scale: 1.0            # no scaling during cooldown
+
+  # Linear decay: 4.375e-5 → 1e-6 over 80 epochs
+  start_lr: 4.375e-5
+  lr: 4.375e-5
+  final_lr: 1.0e-6
+
+  warmup: 0                 # no warmup in cooldown
+  epochs: 80                # same as EchoJEPA-L

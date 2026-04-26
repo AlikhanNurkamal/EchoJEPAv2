@@ -1,0 +1,98 @@
+app: vjepa
+cpus_per_task: 4
+folder: /home/ahmedaly/iCardio/checkpoints/pretrain/icardio_vitl16_224px_16f
+mem_per_gpu: 48G
+nodes: 1
+tasks_per_node: 1
+num_workers: 4
+
+eval_name: video_classification_frozen
+resume_checkpoint: false
+tag: icardio-lvef-embeddings
+
+experiment:
+  classifier:
+    task_type: regression
+    num_heads: 16
+    num_probe_blocks: 4
+    num_targets: 1
+
+  data:
+    dataset_type: EmbeddingDataset
+    # dataset_train/val: path to the embeddings .pt file (same file for both)
+    dataset_train: /data/ahmedaly/icardio_embeddings/embeddings.pt
+    dataset_val: /data/ahmedaly/icardio_embeddings/embeddings.pt
+    # label CSVs tell the dataset which UUIDs belong to train vs val
+    label_csv_train: /home/ahmedaly/iCardio/EchoJEPAv2/training/data_csvs/icardio_lvef_train.csv
+    label_csv_val: /home/ahmedaly/iCardio/EchoJEPAv2/training/data_csvs/icardio_lvef_val.csv
+
+    resolution: 224
+    frames_per_clip: 16
+    frame_step: 2
+    num_segments: 1
+    num_views_per_segment: 1
+
+    target_mean: 60.3217
+    target_std: 7.5670
+
+  optimization:
+    batch_size: 512
+    multihead_kwargs:
+    - final_lr: 0.0
+      final_weight_decay: 0.01
+      lr: 0.001
+      start_lr: 0.001
+      warmup: 0.0
+      weight_decay: 0.01
+    - final_lr: 0.0
+      final_weight_decay: 0.1
+      lr: 0.001
+      start_lr: 0.001
+      warmup: 0.0
+      weight_decay: 0.1
+    - final_lr: 0.0
+      final_weight_decay: 0.4
+      lr: 0.001
+      start_lr: 0.001
+      warmup: 0.0
+      weight_decay: 0.4
+    - final_lr: 0.0
+      final_weight_decay: 0.01
+      lr: 0.0003
+      start_lr: 0.0003
+      warmup: 0.0
+      weight_decay: 0.01
+    - final_lr: 0.0
+      final_weight_decay: 0.1
+      lr: 0.0003
+      start_lr: 0.0003
+      warmup: 0.0
+      weight_decay: 0.1
+    - final_lr: 0.0
+      final_weight_decay: 0.4
+      lr: 0.0003
+      start_lr: 0.0003
+      warmup: 0.0
+      weight_decay: 0.4
+
+    num_epochs: 50
+    use_bfloat16: true
+    use_pos_embed: false
+
+# No pretrained encoder checkpoint needed — embeddings are already extracted.
+# The encoder block is still required by the loader but won't be called.
+model_kwargs:
+  checkpoint: /home/ahmedaly/iCardio/checkpoints/pretrain/icardio_vitl16_224px_16f/latest.pt
+  module_name: evals.video_classification_frozen.modelcustom.vit_encoder_multiclip
+  pretrain_kwargs:
+    encoder:
+      checkpoint_key: target_encoder
+      img_temporal_dim_size: null
+      model_name: vit_large
+      patch_size: 16
+      tubelet_size: 2
+      uniform_power: true
+      use_rope: true
+  wrapper_kwargs:
+    max_frames: 128
+    use_pos_embed: false

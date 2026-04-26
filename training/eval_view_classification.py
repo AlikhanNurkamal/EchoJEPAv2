@@ -181,7 +181,9 @@ def extract_features(encoder, samples, device, batch_size=8):
         clips = torch.stack([s[0] for s in batch]).to(device)
         labels = [s[1] for s in batch]
 
-        with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+        autocast_device = "cuda" if device.startswith("cuda") else "cpu"
+        autocast_dtype = torch.bfloat16 if device.startswith("cuda") else torch.float32
+        with torch.amp.autocast(autocast_device, dtype=autocast_dtype):
             out = encoder(clips)
 
         feat = out.float().mean(dim=1)
@@ -475,7 +477,8 @@ def main():
     print(f"Features extracted in {time.time() - t0:.1f}s\n")
 
     del encoder
-    torch.cuda.empty_cache()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     # Convert labels to indices
     train_labels_idx = torch.tensor([view_to_idx[l] for l in train_labels])
