@@ -32,3 +32,5 @@ Thumbs.db
 *.mp4
 *.dicom
 *.dcm
+evaluation/shard_index.pkl
+training/data_csvs/icardio_lvef_train.csv
