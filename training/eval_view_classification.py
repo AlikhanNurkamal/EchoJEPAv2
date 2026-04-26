@@ -59,9 +59,20 @@ def load_encoder(checkpoint_path: str, device: str):
         use_rope=True,
     )
 
-    key = "target_encoder" if "target_encoder" in ckpt else "encoder"
-    print(f"Using '{key}' weights")
-    state = {k.replace("module.", "").replace("backbone.", ""): v for k, v in ckpt[key].items()}
+    if "target_encoder" in ckpt:
+        key = "target_encoder"
+    elif "encoder" in ckpt:
+        key = "encoder"
+    else:
+        key = None
+
+    if key is not None:
+        print(f"Using '{key}' weights")
+        raw = ckpt[key]
+    else:
+        print(f"No wrapper key found (keys: {list(ckpt.keys())[:8]}); treating as raw state dict")
+        raw = ckpt
+    state = {k.replace("module.", "").replace("backbone.", ""): v for k, v in raw.items()}
     msg = encoder.load_state_dict(state, strict=False)
     print(f"Load msg: {msg}")
 
