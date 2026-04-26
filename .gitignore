@@ -4,9 +4,14 @@
 *.ckpt
 *.safetensors
 
-# Data shards
+# Data shards and large data
 *.tar
 *.npy
+*.avi
+*.mp4
+*.dicom
+*.dcm
+*.pkl
 
 # Python
 __pycache__/
@@ -19,18 +24,42 @@ __pycache__/
 *.log
 wandb/
 
-# IDE
+# IDE / OS
 .vscode/
 .idea/
-
-# OS
 .DS_Store
 Thumbs.db
 
-# Large data
-*.avi
-*.mp4
-*.dicom
-*.dcm
-evaluation/shard_index.pkl
+# Claude-specific files
+.claudeignore
+.codex
+CLAUDE.md
+.claude/
+
+# Paper / report
+report/
+
+# Scratch / test files
+test.txt
+study_site_year.csv
+
+# Eval result folders (large images/outputs)
+pretrain_icardio_336px_16f_text/
+eval_view_cls_e200/
+eval_view_cls_text/
+
+# Presentation drafts
+training/draft_presentation.py
+training/draft_presentation.pptx
+training/create_slides.py
+training/create_presentation.py
+training/progress_slides.pptx
+training/final_presentation.pptx
+training/iCardio_EchoJEPA_Onboarding.pptx
+
+# Large iCardio-specific CSVs
 training/data_csvs/icardio_lvef_train.csv
+training/data_csvs/icardio_lvidd_train.csv
+training/data_csvs/icardio_rvsp_train.csv
+training/data_csvs/icardio_mvregurg_train.csv
+training/data_csvs/icardio_pericardial_train.csv
