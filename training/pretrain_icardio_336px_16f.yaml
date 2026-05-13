@@ -11,8 +11,9 @@
 #   datasets:       path to the directory containing shard-*.tar files
 #
 # Launch with:
-#   cd EchoJEPAv2/EchoJEPA
-#   python app/main.py --fname ../training/pretrain_icardio_336px_16f.yaml --devices cuda:0 cuda:1 ...
+#   cd EchoJEPAv2
+#   PYTHONPATH=custom_src:EchoJEPA python EchoJEPA/app/main.py \
+#       --fname training/pretrain_icardio_336px_16f.yaml --devices cuda:0 cuda:1 ...
 
 app: vjepa
 
@@ -20,13 +21,23 @@ app: vjepa
 folder: /home/ahmedaly/iCardio/checkpoints/pretrain/icardio_vitl16_336px_16f
 
 # ── Data ──────────────────────────────────────────────────────────────────────
+#
+# Split filtering (REQUIRED for training — do NOT train without these env vars):
+#   export ECHOJEPA_ALLOWED_DICOMS=/path/to/EchoJEPAv2/training/train_dicoms.txt
+#   export ECHOJEPA_HOLDOUT_DICOMS=/path/to/EchoJEPAv2/training/holdout_dicoms.txt
+#
+# Split files (all exclude held-out hospital DICOMs):
+#   training/train_dicoms.txt  — 3,145,631 TRAIN DICOMs
+#   training/val_dicoms.txt    —   412,685 VAL DICOMs
+#   training/test_dicoms.txt   —   368,937 TEST DICOMs
+#   training/holdout_dicoms.txt —  172,900 held-out hospital DICOMs (4 sites)
+#
+# Update shard paths below for the target cluster before launching.
 data:
   dataset_type: WebDatasetVideoDataset
   datasets:
-    - /hdd2/ahmedaly/preprocessed_by_alikhan_for_echojepa
-    - /hdd1/ahmedaly/preprocessed_by_alikhan_for_echojepa
+    - /path/to/preprocessed_by_alikhan_for_echojepa   # AMD: ~/project/preprocessed_by_alikhan_for_echojepa (4179 shards)
   datasets_weights:
-    - 1.0
     - 1.0
   batch_size: 24           # per-GPU; scale with GPU count
   crop_size: 336

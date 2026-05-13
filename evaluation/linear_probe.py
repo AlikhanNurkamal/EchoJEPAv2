@@ -32,8 +32,9 @@ import os
 import pickle
 import random
 import sys
-import tarfile
 from pathlib import Path
+
+from tqdm import tqdm
 
 import numpy as np
 import pandas as pd
@@ -60,7 +61,10 @@ _STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 SHARD_DIRS = [
     "/hdd1/ahmedaly/preprocessed_by_alikhan_for_echojepa",
     "/hdd2/ahmedaly/preprocessed_by_alikhan_for_echojepa",
+    "/hdd1/ahmedaly/preprocessed_valve_eval",
+    "/hdd2/ahmedaly/preprocessed_missing_labels",
 ]
+
 
 TASK_CSV = {
     "AS": "AS.csv",
@@ -73,11 +77,13 @@ TASK_CSV = {
 # Shard index
 # ---------------------------------------------------------------------------
 
-def _fast_tar_uuids(tar_path):
-    """Read only 512-byte tar headers (skipping file data via seek) to extract UUIDs."""
-    uuids = []
+def _scan_tar_entries(tar_path):
+    """Scan tar headers and return list of (uuid, data_offset, data_size) for frame files."""
+    entries = []
+    tar_path = str(tar_path)
     with open(tar_path, "rb") as f:
         while True:
+            hdr_offset = f.tell()
             hdr = f.read(512)
             if len(hdr) < 512 or hdr == b"\x00" * 512:
                 break
@@ -87,40 +93,74 @@ def _fast_tar_uuids(tar_path):
                 size = int(size_str, 8) if size_str else 0
             except ValueError:
                 break
-            if name.endswith(".frames.npy"):
-                uuids.append(name.replace(".frames.npy", ""))
-            f.seek(((size + 511) // 512) * 512, 1)
-    return uuids
+            data_offset = hdr_offset + 512  # data starts right after the header block
+            if name.endswith(".frames.npz") or name.endswith(".frames.npy"):
+                uuid = name.replace(".frames.npz", "").replace(".frames.npy", "")
+                fmt = "npz" if name.endswith(".frames.npz") else "npy"
+                entries.append((uuid, data_offset, size, fmt))
+            f.seek(data_offset + ((size + 511) // 512) * 512)
+    return entries
 
 
 def build_shard_index(shard_dirs, index_path):
-    """Scan all tar shards and build a {dicom_uuid: shard_path} dict."""
-    index = {}
+    """Scan shard dirs incrementally, saving after each dir so progress is never lost."""
+    # Load existing index if present (allows resuming / adding new dirs)
+    if index_path.exists():
+        with open(index_path, "rb") as f:
+            index = pickle.load(f)
+        print(f"  Loaded existing index: {len(index)} entries")
+    else:
+        index = {}
+
+    # Track which shard dirs are already fully indexed
+    meta_path = Path(str(index_path) + ".dirs")
+    if meta_path.exists():
+        with open(meta_path, "rb") as f:
+            done_dirs = pickle.load(f)
+    else:
+        done_dirs = set()
+
     for shard_dir in shard_dirs:
         shard_dir = Path(shard_dir)
+        if str(shard_dir) in done_dirs:
+            print(f"  Skipping {shard_dir} (already indexed)")
+            continue
         shards = sorted(shard_dir.glob("shard-*.tar"))
         print(f"  Scanning {len(shards)} shards in {shard_dir} ...")
-        for shard_path in shards:
+        for shard_path in tqdm(shards, desc=f"    {shard_dir.name}", leave=False):
             try:
-                for uuid in _fast_tar_uuids(shard_path):
-                    index[uuid] = str(shard_path)
+                for uuid, offset, size, fmt in _scan_tar_entries(shard_path):
+                    index[uuid] = (str(shard_path), offset, size, fmt)
             except Exception as e:
-                print(f"  Warning: could not read {shard_path}: {e}")
-    with open(index_path, "wb") as f:
-        pickle.dump(index, f)
-    print(f"  Index saved: {len(index)} entries → {index_path}")
+                print(f"  Warning: skipping {shard_path.name}: {e}")
+        # Save after each directory so we never lose progress
+        with open(index_path, "wb") as f:
+            pickle.dump(index, f)
+        done_dirs.add(str(shard_dir))
+        with open(meta_path, "wb") as f:
+            pickle.dump(done_dirs, f)
+        print(f"  Saved: {len(index)} entries so far")
+
+    print(f"  Index complete: {len(index)} entries → {index_path}")
     return index
 
 
 def load_or_build_index(eval_dir, shard_dirs):
     index_path = eval_dir / "shard_index.pkl"
-    if index_path.exists():
-        print(f"Loading shard index from {index_path} ...")
-        with open(index_path, "rb") as f:
-            index = pickle.load(f)
-        print(f"  {len(index)} entries loaded.")
-        return index
-    print("Building shard index (one-time scan, will be cached) ...")
+    meta_path = Path(str(index_path) + ".dirs")
+
+    # Check if all dirs are already indexed
+    if index_path.exists() and meta_path.exists():
+        with open(meta_path, "rb") as f:
+            done_dirs = pickle.load(f)
+        if all(str(Path(d)) in done_dirs for d in shard_dirs):
+            print(f"Loading shard index from {index_path} ...")
+            with open(index_path, "rb") as f:
+                index = pickle.load(f)
+            print(f"  {len(index)} entries loaded.")
+            return index
+
+    print("Building shard index (incremental, saves after each directory) ...")
     return build_shard_index(shard_dirs, index_path)
 
 
@@ -140,12 +180,19 @@ class EchoDataset(Dataset):
 
     def __getitem__(self, idx):
         dicom_uuid, label = self.records[idx]
-        shard_path = self.shard_index[dicom_uuid]
+        shard_path, offset, size, fmt = self.shard_index[dicom_uuid]
 
-        with tarfile.open(shard_path, "r") as tf:
-            raw = tf.extractfile(f"{dicom_uuid}.frames.npy").read()
-
-        frames = np.load(io.BytesIO(raw))  # (T, H, W, 3) uint8 RGB
+        try:
+            with open(shard_path, "rb") as f:
+                f.seek(offset)
+                raw = f.read(size)
+            if fmt == "npz":
+                frames = np.load(io.BytesIO(raw))["frames"]
+            else:
+                frames = np.load(io.BytesIO(raw))
+        except Exception:
+            frames = np.zeros((self.frames_per_clip, 336, 336, 3), dtype=np.uint8)
+        # frames: (T, H, W, 3) uint8 RGB
 
         T = len(frames)
         N = self.frames_per_clip
@@ -247,7 +294,7 @@ def evaluate(encoder, probe, loader, device):
     all_logits, all_labels, all_uuids = [], [], []
 
     autocast_device = "cuda" if "cuda" in device else "cpu"
-    for clips, labels, uuids in loader:
+    for clips, labels, uuids in tqdm(loader, desc="  eval", leave=False):
         clips = clips.to(device)
         with torch.amp.autocast(autocast_device, dtype=torch.bfloat16):
             tokens = encoder(clips)
@@ -276,6 +323,7 @@ def main():
     ))
     parser.add_argument("--output-dir", default="evaluation/results")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--eval-only", action="store_true", help="Skip training, evaluate saved probe_best.pt")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -325,6 +373,8 @@ def main():
             num_workers=args.num_workers,
             pin_memory="cuda" in args.device,
             drop_last=False,
+            persistent_workers=args.num_workers > 0,
+            prefetch_factor=2 if args.num_workers > 0 else None,
         )
 
     train_loader = make_loader(train_records, training=True)
@@ -349,13 +399,20 @@ def main():
     # Training
     # ------------------------------------------------------------------
     autocast_device = "cuda" if "cuda" in args.device else "cpu"
-    print(f"\nTraining for {args.epochs} epochs ...")
-    for epoch in range(1, args.epochs + 1):
+    if args.eval_only:
+        print(f"\nEval-only mode: loading {probe_ckpt_path} ...")
+        ckpt = torch.load(probe_ckpt_path, map_location=args.device, weights_only=False)
+        probe.load_state_dict(ckpt["probe"])
+        best_val_acc = ckpt.get("val_acc", 0.0)
+    else:
+      print(f"\nTraining for {args.epochs} epochs ...")
+    for epoch in range(1, 0 if args.eval_only else args.epochs + 1):
         probe.train()
         total_loss = 0.0
         n_batches = 0
 
-        for clips, labels, _ in train_loader:
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch:3d}/{args.epochs} [train]", leave=False)
+        for clips, labels, _ in pbar:
             clips  = clips.to(args.device)
             labels = labels.to(args.device)
 
@@ -372,6 +429,7 @@ def main():
 
             total_loss += loss.item()
             n_batches  += 1
+            pbar.set_postfix(loss=f"{loss.item():.4f}")
 
         val_acc, _, _, _, _ = evaluate(encoder, probe, val_loader, args.device)
 
@@ -384,9 +442,10 @@ def main():
     # ------------------------------------------------------------------
     # Final evaluation on val + test using best checkpoint
     # ------------------------------------------------------------------
-    print(f"\nLoading best probe (val_acc={best_val_acc:.4f}) ...")
-    ckpt = torch.load(probe_ckpt_path, map_location=args.device, weights_only=False)
-    probe.load_state_dict(ckpt["probe"])
+    if not args.eval_only:
+        print(f"\nLoading best probe (val_acc={best_val_acc:.4f}) ...")
+        ckpt = torch.load(probe_ckpt_path, map_location=args.device, weights_only=False)
+        probe.load_state_dict(ckpt["probe"])
 
     int_to_label = {v: k for k, v in label_map.items()}
 

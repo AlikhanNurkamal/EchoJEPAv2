@@ -43,6 +43,11 @@ report/
 test.txt
 study_site_year.csv
 
+# Generated / machine-specific
+EchoJEPA_backup/
+evaluation/shard_index.pkl.dirs
+labels/
+
 # Eval result folders (large images/outputs)
 pretrain_icardio_336px_16f_text/
 eval_view_cls_e200/

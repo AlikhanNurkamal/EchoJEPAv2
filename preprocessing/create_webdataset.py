@@ -318,10 +318,10 @@ class ShardWriter:
         return last_idx + 1
 
     @staticmethod
-    def _npy_bytes(arr: np.ndarray) -> bytes:
-        """Serialize ndarray to .npy bytes in memory."""
+    def _npz_bytes(arr: np.ndarray) -> bytes:
+        """Serialize ndarray to compressed .npz bytes in memory."""
         buf = io.BytesIO()
-        np.save(buf, arr)
+        np.savez_compressed(buf, frames=arr)
         return buf.getvalue()
 
     @staticmethod
@@ -343,7 +343,7 @@ class ShardWriter:
         if self._tar is None or self._count >= self.shard_size:
             self._open_new_shard()
 
-        self._add_to_tar(self._tar, f"{key}.frames.npy", self._npy_bytes(frames))
+        self._add_to_tar(self._tar, f"{key}.frames.npz", self._npz_bytes(frames))
         self._add_to_tar(self._tar, f"{key}.metadata.json",
                      json.dumps(metadata, indent=2).encode("utf-8"))
         self._count += 1
