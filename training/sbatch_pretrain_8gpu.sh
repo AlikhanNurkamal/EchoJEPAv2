@@ -35,7 +35,7 @@ export PYTHONPATH="$REPO_DIR/custom_src:$REPO_DIR/EchoJEPA"
 
 echo "Job ID:    $SLURM_JOB_ID"
 echo "Node:      $SLURMD_NODENAME"
-echo "GPUs:      $HIP_VISIBLE_DEVICES"
+echo "GPUs:      $ROCR_VISIBLE_DEVICES"
 echo "Started:   $(date)"
 echo ""
 
