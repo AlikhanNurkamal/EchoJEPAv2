@@ -3,7 +3,7 @@
 #SBATCH --qos=myqos
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --gpus-per-node=12
+#SBATCH --gpus-per-node=8
 #SBATCH --cpus-per-gpu=12
 #SBATCH --mem=512G
 #SBATCH --exclusive
@@ -27,7 +27,7 @@ export MIOPEN_CUSTOM_CACHE_DIR="$HOME/.cache/miopen_cache"
 mkdir -p "$MIOPEN_USER_DB_PATH" "$MIOPEN_CUSTOM_CACHE_DIR"
 
 # ── GPU selection ─────────────────────────────────────────────────────────────
-export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7,8,9,10,11
+export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
 # ── Split filtering ───────────────────────────────────────────────────────────
 export ECHOJEPA_ALLOWED_DICOMS="$REPO_DIR/training/train_dicoms.txt"
@@ -44,7 +44,7 @@ echo ""
 
 python EchoJEPA/app/main.py \
     --fname training/pretrain_icardio_336px_16f_amd12gpu.yaml \
-    --devices cuda:0 cuda:1 cuda:2 cuda:3 cuda:4 cuda:5 cuda:6 cuda:7 cuda:8 cuda:9 cuda:10 cuda:11
+    --devices cuda:0 cuda:1 cuda:2 cuda:3 cuda:4 cuda:5 cuda:6 cuda:7
 
 echo ""
 echo "Finished: $(date)"
