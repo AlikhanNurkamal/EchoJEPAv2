@@ -104,7 +104,7 @@ optimization:
   weight_decay: 0.04
   final_weight_decay: 0.04
 
-  ipe: 1000
+  ipe: 300
   ipe_scale: 1.25          # match EchoJEPA ViT-L recipe
 
   # LR scaled from V-JEPA2 recipe: 5.25e-4 × (global_batch / 3072)
