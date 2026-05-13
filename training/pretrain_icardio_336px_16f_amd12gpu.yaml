@@ -1,14 +1,12 @@
-# EchoJEPAv2 pretraining config — AMD cluster, 8 GPUs (gtqos)
+# EchoJEPAv2 pretraining config — AMD cluster, 12 GPUs (myqos)
 #
 # Launch:
-#   sbatch training/sbatch_pretrain_8gpu.sh
-#
-# Split filtering env vars are set in the sbatch script.
+#   sbatch training/sbatch_pretrain_12gpu.sh
 
 app: vjepa
 
 # ── Output ────────────────────────────────────────────────────────────────────
-folder: /home/mohammad.yaqub/project/checkpoints/pretrain_icardio_336px_16f
+folder: /vast/users/mohammad.yaqub/project/checkpoints/pretrain_icardio_336px_16f
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 #
@@ -18,10 +16,10 @@ folder: /home/mohammad.yaqub/project/checkpoints/pretrain_icardio_336px_16f
 data:
   dataset_type: WebDatasetVideoDataset
   datasets:
-    - /home/mohammad.yaqub/project/preprocessed_by_alikhan_for_echojepa
+    - /vast/users/mohammad.yaqub/project/preprocessed_by_alikhan_for_echojepa
   datasets_weights:
     - 1.0
-  batch_size: 24           # per-GPU; 8 GPUs → global batch = 192
+  batch_size: 32           # per-GPU; 12 GPUs → global batch = 384
   crop_size: 336
   dataset_fpcs:
     - 16
@@ -69,7 +67,7 @@ mask:
 wandb:
   enable: true
   project: echojepa-pretrain
-  name: icardio-vitl16-336px-16f-amd8gpu
+  name: icardio-vitl16-336px-16f-amd12gpu
 
 # ── Meta ──────────────────────────────────────────────────────────────────────
 meta:
@@ -110,10 +108,10 @@ optimization:
   ipe_scale: 1.25          # match EchoJEPA ViT-L recipe
 
   # LR scaled from V-JEPA2 recipe: 5.25e-4 × (global_batch / 3072)
-  # 8 GPUs × 24 = 192 global batch → 5.25e-4 × (192/3072) = 3.28e-5
-  start_lr: 6.6e-6
-  lr: 3.28e-5
+  # 12 GPUs × 32 = 384 global batch → 5.25e-4 × (384/3072) = 6.56e-5
+  start_lr: 1.3e-5
+  lr: 6.56e-5
   final_lr: 1.0e-6         # cosine decay to near-zero (EchoJEPA-L cooldown target)
 
-  warmup: 40
-  epochs: 200
+  warmup: 40       # epochs of linear LR warmup
+  epochs: 200      # same as original EchoJEPA
