@@ -1,9 +1,12 @@
 # EchoJEPAv2 pretraining config — local machine, 2× RTX A6000 (CUDA)
 #
 # For rapid experiments (~17 hours, fits in 1 day).
+# Use train_dicoms_5pct.txt (157,281 DICOMs, seed=42) for all local experiments
+# so results are directly comparable across variants.
+#
 # Run with:
 #   PYTHONPATH=custom_src:EchoJEPA \
-#   ECHOJEPA_ALLOWED_DICOMS=training/train_dicoms.txt \
+#   ECHOJEPA_ALLOWED_DICOMS=training/train_dicoms_5pct.txt \
 #   ECHOJEPA_HOLDOUT_DICOMS=training/holdout_dicoms.txt \
 #   python EchoJEPA/app/main.py \
 #     --fname training/pretrain_icardio_336px_16f_local2gpu.yaml \
