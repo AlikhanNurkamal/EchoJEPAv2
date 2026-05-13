@@ -24,7 +24,7 @@ data:
   dataset_fpcs:
     - 16
   fps: 24
-  num_workers: 8
+  num_workers: 16
   patch_size: 16
   persistent_workers: true
   pin_mem: true
