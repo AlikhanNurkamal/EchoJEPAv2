@@ -76,7 +76,7 @@ meta:
   read_checkpoint: null
   save_every_freq: -1
   seed: 42
-  use_sdpa: false          # ROCm: disable SDPA to avoid mem_efficient_sdp issues
+  use_sdpa: true           # MI300X supports flash SDPA; needed for 3528-token sequences at 336px/16f
   checkpoints_to_keep: 3
 
 # ── Model ─────────────────────────────────────────────────────────────────────
