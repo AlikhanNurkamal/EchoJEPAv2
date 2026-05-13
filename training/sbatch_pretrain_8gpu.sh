@@ -26,9 +26,6 @@ export MIOPEN_USER_DB_PATH="$HOME/.cache/miopen_db"
 export MIOPEN_CUSTOM_CACHE_DIR="$HOME/.cache/miopen_cache"
 mkdir -p "$MIOPEN_USER_DB_PATH" "$MIOPEN_CUSTOM_CACHE_DIR"
 
-# ── GPU selection ─────────────────────────────────────────────────────────────
-export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-
 # ── Split filtering ───────────────────────────────────────────────────────────
 export ECHOJEPA_ALLOWED_DICOMS="$REPO_DIR/training/train_dicoms.txt"
 export ECHOJEPA_HOLDOUT_DICOMS="$REPO_DIR/training/holdout_dicoms.txt"
