@@ -14,6 +14,10 @@
 
 set -euo pipefail
 
+# ── Conda env ─────────────────────────────────────────────────────────────────
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate echojepav2
+
 REPO_DIR="$HOME/project/EchoJEPAv2"
 cd "$REPO_DIR"
 
