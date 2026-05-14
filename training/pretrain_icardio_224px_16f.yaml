@@ -72,6 +72,7 @@ mask:
 # ── Weights & Biases ──────────────────────────────────────────────────────────
 wandb:
   enable: true
+  entity: anaatef9-mbzuai
   project: echojepa-pretrain
   name: icardio-vitl16-224px-16f-8fps
 

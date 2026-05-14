@@ -88,6 +88,7 @@ mask:
 # ── Weights & Biases ──────────────────────────────────────────────────────────
 wandb:
   enable: true
+  entity: anaatef9-mbzuai
   project: echojepa-pretrain         # W&B project name
   name: icardio-vitl16-336px-16f     # run display name
   # run_id: null                     # set to resume a specific W&B run
