@@ -6,28 +6,32 @@ Scans each shard directory one at a time and saves progress after each one,
 so if interrupted you won't lose work already done.
 
 Usage:
+    # Local machine (uses built-in defaults)
     python evaluation/build_index.py
 
+    # AMD cluster (pass explicit dirs and output path)
+    python evaluation/build_index.py \\
+        --shard-dirs /home/mohammad.yaqub/project/preprocessed_by_alikhan_for_echojepa \\
+        --output evaluation/shard_index_amd.pkl
+
 Output:
-    evaluation/shard_index.pkl       -- the index
-    evaluation/shard_index.pkl.dirs  -- tracks which dirs are done
+    {output}       -- the index
+    {output}.dirs  -- tracks which dirs are done (for resuming)
 """
 
+import argparse
 import pickle
 from pathlib import Path
 
 from tqdm import tqdm
 
-SHARD_DIRS = [
+_DEFAULT_SHARD_DIRS = [
     "/hdd1/ahmedaly/preprocessed_by_alikhan_for_echojepa",
     "/hdd2/ahmedaly/preprocessed_by_alikhan_for_echojepa",
     "/hdd1/ahmedaly/preprocessed_valve_eval",
     "/hdd2/ahmedaly/preprocessed_missing_labels",
     "/hdd2/ahmedaly/preprocessed_remaining",
 ]
-
-INDEX_PATH = Path("evaluation/shard_index.pkl")
-META_PATH  = Path("evaluation/shard_index.pkl.dirs")
 
 
 def scan_tar(tar_path):
@@ -55,6 +59,20 @@ def scan_tar(tar_path):
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--shard-dirs", nargs="+", default=_DEFAULT_SHARD_DIRS,
+                    help="Directories containing shard-*.tar files to index")
+    ap.add_argument("--output", default="evaluation/shard_index.pkl",
+                    help="Output .pkl path (a .dirs progress file is written alongside it)")
+    args = ap.parse_args()
+
+    INDEX_PATH = Path(args.output)
+    META_PATH  = Path(str(args.output) + ".dirs")
+    shard_dirs = args.shard_dirs
+
+    print(f"Output    : {INDEX_PATH}")
+    print(f"Shard dirs: {shard_dirs}")
+
     # Load existing index and completed-dirs tracker
     index = {}
     if INDEX_PATH.exists():
@@ -67,7 +85,7 @@ def main():
         with open(META_PATH, "rb") as f:
             done_dirs = pickle.load(f)
 
-    for shard_dir in SHARD_DIRS:
+    for shard_dir in shard_dirs:
         shard_dir = Path(shard_dir)
         if str(shard_dir) in done_dirs:
             print(f"[skip] {shard_dir}  (already done)")
@@ -83,6 +101,7 @@ def main():
                 tqdm.write(f"  Warning: skipping {shard_path.name}: {e}")
 
         # Save progress after each directory
+        INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(INDEX_PATH, "wb") as f:
             pickle.dump(index, f)
         done_dirs.add(str(shard_dir))
