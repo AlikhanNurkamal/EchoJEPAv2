@@ -3,9 +3,9 @@
 #SBATCH --qos=gtqos
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --gpus-per-node=1
-#SBATCH --cpus-per-gpu=12
-#SBATCH --mem=128G
+#SBATCH --gpus-per-node=4
+#SBATCH --cpus-per-gpu=8
+#SBATCH --mem=192G
 #SBATCH --job-name=echojepav2_eval
 #SBATCH -t 12:00:00
 #SBATCH --output=/vast/users/mohammad.yaqub/project/EchoJEPAv2/training/amd_logs/eval_%j.out
@@ -58,9 +58,10 @@ python evaluation/eval_icardio.py \
     --labels-dir "$LABELS_DIR" \
     --shard-index "$SHARD_INDEX" \
     --output-dir "$OUTPUT_DIR" \
-    --device cuda:0 \
+    --devices cuda:0 cuda:1 cuda:2 cuda:3 \
     --batch-size 128 \
     --num-workers 8 \
+    --save-every 50 \
     --max-dicoms-per-study 3 \
     --train-fraction 1.0
 

@@ -9,16 +9,15 @@ Two-phase pipeline:
              probe (logistic regression or ridge), evaluate with bootstrap CIs.
 
 Usage:
-  # Run all default tasks on a single checkpoint
+  # Single GPU
   python evaluation/eval_icardio.py \\
       --checkpoint checkpoints/pretrain/icardio_vitl16_336px_16f_local2gpu/latest.pt \\
-      --run-name 5pct \\
-      --device cuda:1
+      --run-name 5pct --device cuda:1
 
-  # Specific tasks only
+  # Multi-GPU (splits DICOMs across GPUs, ~Nx speedup)
   python evaluation/eval_icardio.py \\
-      --checkpoint checkpoints/pretrain/icardio_vitl16_336px_16f_local2gpu_30pct/latest.pt \\
-      --run-name 30pct --tasks as_binary ef mr_binary lv_systolic --device cuda:1
+      --checkpoint checkpoints/pretrain/.../latest.pt \\
+      --run-name 5pct --devices cuda:0 cuda:1 cuda:2 cuda:3
 
   # Skip extraction if embeddings already cached, re-run probes only
   python evaluation/eval_icardio.py \\
@@ -27,19 +26,23 @@ Usage:
 
 Outputs per run-name:
   {output_dir}/{run_name}/
-    embeddings.pt           — {dicom_uuid: (1024,) float32 tensor} embedding cache
-    {task}/metrics.json     — metrics with 95% bootstrap CIs
-    {task}/predictions.csv  — study_id, y_true, y_pred, [y_prob]
-    summary.csv             — one row per task, key metrics side-by-side
+    embeddings.pt               — {dicom_uuid: (1024,) float32 np array} cache
+    embeddings_partial_{i}.pt   — per-GPU partial cache (auto-deleted after merge)
+    {task}/metrics.json         — metrics with 95% bootstrap CIs
+    {task}/predictions.csv      — study_id, y_true, y_pred, [y_prob]
+    summary.csv                 — one row per task, key metrics side-by-side
 """
 
 import argparse
 import gc
 import io
 import json
+import multiprocessing as mp
+import os
 import pickle
 import random
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -66,12 +69,6 @@ _MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 # ── Task registry ──────────────────────────────────────────────────────────────
-# Each entry:
-#   csv       — filename under LABELS_DIR
-#   type      — "binary", "multiclass", "regression"
-#   binary_pos— (classification only) labels mapped to 1; rest → 0
-#               None means use all label values as-is (multiclass)
-
 TASKS = {
     # ── Valvular disease ──────────────────────────────────────────────────────
     "as_binary": dict(
@@ -239,10 +236,33 @@ def load_encoder(checkpoint_path, device):
 
 # ── Embedding extraction ───────────────────────────────────────────────────────
 
-@torch.no_grad()
-def extract_embeddings(encoder, uuids, shard_index, device, batch_size, num_workers):
-    """Return {dicom_uuid: np.ndarray (D,)} for all requested uuids."""
-    ds = DicomDataset(uuids, shard_index)
+def _sort_by_shard_offset(uuids, shard_index):
+    """Sort for sequential HDD reads: group by shard file, order by byte offset."""
+    return sorted(uuids, key=lambda u: (shard_index[u][0], shard_index[u][1]))
+
+
+def _run_single_gpu(device, checkpoint_path, shard_index, uuids,
+                    batch_size, num_workers, partial_path, save_every):
+    """Extract embeddings on one device; saves incrementally to partial_path."""
+    existing = {}
+    if partial_path is not None and partial_path.exists():
+        try:
+            existing = torch.load(partial_path, map_location="cpu", weights_only=False)
+            print(f"  [{device}] Resuming: {len(existing):,} already done")
+        except Exception:
+            pass
+
+    missing = [u for u in uuids if u not in existing]
+    if not missing:
+        print(f"  [{device}] All {len(uuids):,} already extracted, nothing to do")
+        return existing
+
+    # Sort for sequential HDD reads
+    missing = _sort_by_shard_offset(missing, shard_index)
+    print(f"  [{device}] Extracting {len(missing):,} DICOMs (sorted by shard+offset)")
+
+    encoder = load_encoder(checkpoint_path, device)
+    ds = DicomDataset(missing, shard_index)
     loader = DataLoader(
         ds, batch_size=batch_size, shuffle=False,
         num_workers=num_workers, pin_memory=("cuda" in device),
@@ -250,35 +270,214 @@ def extract_embeddings(encoder, uuids, shard_index, device, batch_size, num_work
         prefetch_factor=2 if num_workers > 0 else None,
     )
 
-    cache = {}
+    cache = dict(existing)
     autocast_dev = "cuda" if "cuda" in device else "cpu"
-    for clips, batch_uuids in tqdm(loader, desc="  extracting", unit="batch"):
+
+    for i, (clips, batch_uuids) in enumerate(tqdm(loader, desc=f"  [{device}]", unit="batch")):
         clips = clips.to(device)
-        with torch.amp.autocast(autocast_dev, dtype=torch.bfloat16):
-            tokens = encoder(clips)          # (B, N_tokens, D)
-        embs = tokens.float().mean(dim=1)    # (B, D) mean-pool over tokens
-        embs_np = embs.cpu().numpy()
-        for uuid, emb in zip(batch_uuids, embs_np):
+        with torch.no_grad():
+            with torch.amp.autocast(autocast_dev, dtype=torch.bfloat16):
+                tokens = encoder(clips)
+        embs = tokens.float().mean(dim=1).cpu().numpy()
+        for uuid, emb in zip(batch_uuids, embs):
             cache[uuid] = emb
 
+        if partial_path is not None and (i + 1) % save_every == 0:
+            tmp = partial_path.with_suffix(".tmp")
+            torch.save(cache, tmp)
+            tmp.rename(partial_path)
+
+    if partial_path is not None:
+        tmp = partial_path.with_suffix(".tmp")
+        torch.save(cache, tmp)
+        tmp.rename(partial_path)
+
+    del encoder; gc.collect()
+    if "cuda" in device:
+        torch.cuda.empty_cache()
+
     return cache
+
+
+# ── Subprocess worker (multi-GPU) ──────────────────────────────────────────────
+
+def _mp_worker(worker_idx, device, checkpoint_path, shard_index_path,
+               uuids, partial_path_str, batch_size, num_workers, save_every):
+    """
+    Subprocess worker for one GPU.  Loads shard_index from disk so it doesn't
+    need to be pickled into the process — safer for large indices.
+    """
+    import sys
+    from pathlib import Path
+
+    # Ensure EchoJEPA is importable in the subprocess
+    _repo = Path(__file__).resolve().parent.parent
+    _ejpa = str(_repo / "EchoJEPA")
+    if _ejpa not in sys.path:
+        sys.path.insert(0, _ejpa)
+    _csrc = str(_repo / "custom_src")
+    if _csrc not in sys.path:
+        sys.path.insert(0, _csrc)
+
+    print(f"[worker {worker_idx}|{device}] loading shard index …", flush=True)
+    with open(shard_index_path, "rb") as fh:
+        shard_index = pickle.load(fh)
+
+    partial_path = Path(partial_path_str)
+
+    existing = {}
+    if partial_path.exists():
+        try:
+            existing = torch.load(partial_path, map_location="cpu", weights_only=False)
+            print(f"[worker {worker_idx}|{device}] resuming — {len(existing):,} done", flush=True)
+        except Exception:
+            pass
+
+    missing = [u for u in uuids if u not in existing]
+    if not missing:
+        print(f"[worker {worker_idx}|{device}] nothing to do", flush=True)
+        return
+
+    missing = _sort_by_shard_offset(missing, shard_index)
+    print(f"[worker {worker_idx}|{device}] {len(missing):,} to extract", flush=True)
+
+    encoder = load_encoder(checkpoint_path, device)
+    ds = DicomDataset(missing, shard_index)
+    loader = DataLoader(
+        ds, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=("cuda" in device),
+        persistent_workers=(num_workers > 0),
+        prefetch_factor=2 if num_workers > 0 else None,
+    )
+
+    cache = dict(existing)
+    autocast_dev = "cuda" if "cuda" in device else "cpu"
+    n_batches = len(loader)
+
+    for i, (clips, batch_uuids) in enumerate(loader):
+        clips = clips.to(device)
+        with torch.no_grad():
+            with torch.amp.autocast(autocast_dev, dtype=torch.bfloat16):
+                tokens = encoder(clips)
+        embs = tokens.float().mean(dim=1).cpu().numpy()
+        for uuid, emb in zip(batch_uuids, embs):
+            cache[uuid] = emb
+
+        if (i + 1) % save_every == 0:
+            tmp = partial_path.with_suffix(".tmp")
+            torch.save(cache, tmp)
+            tmp.rename(partial_path)
+            pct = (i + 1) / n_batches * 100
+            print(f"[worker {worker_idx}|{device}] {i+1}/{n_batches} batches ({pct:.0f}%)",
+                  flush=True)
+
+    tmp = partial_path.with_suffix(".tmp")
+    torch.save(cache, tmp)
+    tmp.rename(partial_path)
+    print(f"[worker {worker_idx}|{device}] done — {len(cache):,} embeddings", flush=True)
+
+    del encoder; gc.collect()
+    if "cuda" in device:
+        torch.cuda.empty_cache()
+
+
+def extract_embeddings_parallel(checkpoint_path, uuids, shard_index, shard_index_path,
+                                 devices, batch_size, num_workers, out_dir, save_every=100):
+    """
+    Extract embeddings across one or more GPUs with incremental saves.
+
+    For a single device, runs in-process (no subprocess overhead).
+    For multiple devices, splits UUIDs across workers (one per device).
+
+    Partial results are saved to {out_dir}/embeddings_partial_{i}.pt and merged
+    into {out_dir}/embeddings.pt at the end.  On restart, already-done UUIDs are
+    skipped, so no progress is lost.
+    """
+    n = len(devices)
+    partial_paths = [out_dir / f"embeddings_partial_{i}.pt" for i in range(n)]
+    cache_path    = out_dir / "embeddings.pt"
+
+    # Load any existing final cache (e.g. from a previous complete run)
+    existing_final = {}
+    if cache_path.exists():
+        try:
+            existing_final = torch.load(cache_path, map_location="cpu", weights_only=False)
+        except Exception:
+            pass
+
+    # Filter to truly missing UUIDs
+    truly_missing = [u for u in uuids if u not in existing_final]
+    if not truly_missing:
+        print(f"  All {len(uuids):,} embeddings already in final cache.")
+        return existing_final
+
+    # Split missing UUIDs across workers (round-robin by sorted shard order keeps locality)
+    sorted_missing = _sort_by_shard_offset(truly_missing, shard_index)
+    chunks = [sorted_missing[i::n] for i in range(n)]
+
+    print(f"\nExtracting {len(truly_missing):,} DICOMs across {n} GPU(s):")
+    for i, (dev, chunk) in enumerate(zip(devices, chunks)):
+        print(f"  GPU {i} ({dev}): {len(chunk):,} DICOMs → {partial_paths[i].name}")
+
+    if n == 1:
+        # In-process: no subprocess overhead, tqdm progress bar works normally
+        _run_single_gpu(devices[0], checkpoint_path, shard_index, chunks[0],
+                        batch_size, num_workers, partial_paths[0], save_every)
+    else:
+        ctx = mp.get_context("spawn")
+        procs = []
+        for i in range(n):
+            p = ctx.Process(
+                target=_mp_worker,
+                args=(i, devices[i], str(checkpoint_path), str(shard_index_path),
+                      chunks[i], str(partial_paths[i]),
+                      batch_size, max(1, num_workers // n), save_every),
+            )
+            p.start()
+            procs.append(p)
+            print(f"  Launched worker {i} (PID {p.pid})")
+
+        for i, p in enumerate(procs):
+            p.join()
+            if p.exitcode != 0:
+                print(f"  WARNING: worker {i} exited with code {p.exitcode}")
+
+    # Merge all partial caches
+    print("\nMerging partial caches …")
+    merged = dict(existing_final)
+    for pp in partial_paths:
+        if pp.exists():
+            try:
+                partial = torch.load(pp, map_location="cpu", weights_only=False)
+                merged.update(partial)
+                print(f"  {pp.name}: {len(partial):,} embeddings")
+            except Exception as e:
+                print(f"  WARNING: could not load {pp}: {e}")
+
+    # Atomic save of final merged cache
+    tmp = cache_path.with_suffix(".tmp")
+    torch.save(merged, tmp)
+    tmp.rename(cache_path)
+    print(f"  Saved {len(merged):,} embeddings → {cache_path}")
+
+    # Clean up partial files
+    for pp in partial_paths:
+        if pp.exists():
+            pp.unlink()
+
+    return merged
 
 
 # ── Manifest + task data loading ───────────────────────────────────────────────
 
 def build_study_dicom_map(manifest_path, needed_study_ids, shard_index, max_per_study=3):
-    """Load manifest, filter to needed studies, return study_id -> [dicom_uuid].
-
-    Keeps at most max_per_study DICOMs per study, ranked by quality_score descending
-    so that low-quality / off-target DICOMs are de-prioritised.
-    """
+    """Load manifest, filter to needed studies, return study_id -> [dicom_uuid]."""
     print("Loading manifest …")
     cols = ["dicom_uuid", "study_uuid", "n_frames"]
     manifest = pd.read_parquet(manifest_path, columns=cols)
     manifest = manifest[manifest["study_uuid"].isin(needed_study_ids)]
     manifest = manifest[manifest["dicom_uuid"].isin(shard_index)]
 
-    # Sort by n_frames descending (more frames = more temporal signal) then keep top-k per study
     manifest = manifest.sort_values("n_frames", ascending=False, na_position="last")
     manifest = manifest.groupby("study_uuid").head(max_per_study)
 
@@ -289,9 +488,8 @@ def build_study_dicom_map(manifest_path, needed_study_ids, shard_index, max_per_
 
 
 def load_task_records(task_cfg, study_dicom_map, emb_cache, labels_dir):
-    """Return (study_embeddings, labels, splits) as numpy arrays, one row per study."""
+    """Return (embeddings, labels, splits) as numpy arrays, one row per study."""
     df = pd.read_csv(labels_dir / task_cfg["csv"])
-    # normalise column names
     df = df.rename(columns={"study designation": "split"})
     df["split"] = df["split"].str.upper()
 
@@ -325,7 +523,7 @@ def train_classification_probe(X_train, y_train, C=1.0, class_weight="balanced")
     X_train = scaler.fit_transform(X_train)
     clf = LogisticRegression(
         C=C, max_iter=2000, solver="lbfgs",
-        multi_class="auto", class_weight=class_weight,
+        class_weight=class_weight,
         random_state=42, n_jobs=-1,
     )
     clf.fit(X_train, y_train)
@@ -438,7 +636,6 @@ def run_task(task_name, task_cfg, study_dicom_map, emb_cache, out_dir, run_name,
     X_va, y_va = embeddings[mask_va], labels[mask_va]
     X_te, y_te = embeddings[mask_te], labels[mask_te]
 
-    # Optionally subsample training set to match pretraining data fraction
     if train_fraction < 1.0 and len(X_tr) > 0:
         rng = np.random.default_rng(seed)
         n_keep = max(1, int(len(X_tr) * train_fraction))
@@ -475,12 +672,10 @@ def run_task(task_name, task_cfg, study_dicom_map, emb_cache, out_dir, run_name,
         X_va_s = scaler.transform(X_va)
         X_te_s = scaler.transform(X_te)
 
-        # Use decision_function or predict_proba
         if hasattr(probe, "predict_proba"):
             val_prob  = probe.predict_proba(X_va_s)
             test_prob = probe.predict_proba(X_te_s)
         else:
-            # fallback: one-hot from decision_function
             df_va = probe.decision_function(X_va_s)
             df_te = probe.decision_function(X_te_s)
             def softmax(x): e = np.exp(x - x.max(1, keepdims=True)); return e / e.sum(1, keepdims=True)
@@ -537,23 +732,40 @@ def main():
                     help=f"Tasks to evaluate. Available: {list(TASKS)}")
     ap.add_argument("--output-dir", default=str(REPO_DIR / "evaluation" / "results" / "icardio"),
                     help="Base output directory")
-    ap.add_argument("--device",      default="cuda" if torch.cuda.is_available() else "cpu")
+
+    # GPU selection — use --devices for multi-GPU, or --device for single-GPU
+    _default_dev = "cuda" if torch.cuda.is_available() else "cpu"
+    ap.add_argument("--device",  default=None,
+                    help="Single GPU device (e.g. cuda:0). Overridden by --devices.")
+    ap.add_argument("--devices", nargs="+", default=None,
+                    help="One or more GPU devices for parallel extraction (e.g. cuda:0 cuda:1 cuda:2 cuda:3)")
+
     ap.add_argument("--batch-size",  type=int, default=128)
     ap.add_argument("--num-workers", type=int, default=4)
+    ap.add_argument("--save-every",  type=int, default=100,
+                    help="Save incremental checkpoint every N batches per GPU")
     ap.add_argument("--train-fraction", type=float, default=1.0,
-                    help="Fraction of labeled TRAIN studies to use for probe training (e.g. 0.05 for 5pct run)")
+                    help="Fraction of labeled TRAIN studies to use for probe training")
     ap.add_argument("--max-dicoms-per-study", type=int, default=3,
-                    help="Keep top-k DICOMs per study by n_frames (reduces extraction time)")
+                    help="Keep top-k DICOMs per study by n_frames")
     ap.add_argument("--labels-dir",   default=str(_DEFAULT_LABELS_DIR),
                     help="Directory containing task CSVs and the manifest parquet")
     ap.add_argument("--manifest",     default=None,
                     help="Path to manifest parquet (default: {labels_dir}/manifest_clinical_findings_with_eval_labels.parquet)")
     ap.add_argument("--shard-index",  default=str(_DEFAULT_SHARD_INDEX),
-                    help="Path to shard_index.pkl (built by evaluation/build_index.py)")
+                    help="Path to shard_index.pkl")
     ap.add_argument("--probe-only",  action="store_true",
                     help="Skip extraction, load cached embeddings only")
     ap.add_argument("--seed",        type=int, default=42)
     args = ap.parse_args()
+
+    # Resolve device list
+    if args.devices:
+        devices = args.devices
+    elif args.device:
+        devices = [args.device]
+    else:
+        devices = [_default_dev]
 
     labels_dir  = Path(args.labels_dir)
     manifest    = Path(args.manifest) if args.manifest else labels_dir / "manifest_clinical_findings_with_eval_labels.parquet"
@@ -570,6 +782,7 @@ def main():
     print(f"\n{'='*60}")
     print(f"EchoJEPAv2 iCardio Eval  |  run: {args.run_name}")
     print(f"Checkpoint  : {args.checkpoint}")
+    print(f"Devices     : {devices}")
     print(f"Labels dir  : {labels_dir}")
     print(f"Shard index : {shard_index_path}")
     print(f"Tasks       : {args.tasks}")
@@ -598,39 +811,27 @@ def main():
     print(f"  {len(needed_uuids):,} DICOMs to embed")
 
     # ── Phase 1: Extract / load embeddings ────────────────────────────────────
-    if cache_path.exists() and args.probe_only:
+    if args.probe_only:
         print(f"\nLoading cached embeddings from {cache_path} …")
+        if not cache_path.exists():
+            print(f"ERROR: --probe-only set but no cache at {cache_path}")
+            sys.exit(1)
         emb_cache = torch.load(cache_path, map_location="cpu", weights_only=False)
         print(f"  {len(emb_cache):,} embeddings loaded")
     else:
-        if cache_path.exists():
-            print(f"\nCache exists at {cache_path}. Checking coverage …")
-            existing = torch.load(cache_path, map_location="cpu", weights_only=False)
-            missing = [u for u in needed_uuids if u not in existing]
-            print(f"  {len(existing):,} cached, {len(missing):,} missing")
-            if not missing:
-                emb_cache = existing
-            else:
-                print(f"\nExtracting {len(missing):,} missing DICOMs …")
-                encoder = load_encoder(args.checkpoint, args.device)
-                new_cache = extract_embeddings(
-                    encoder, missing, shard_index,
-                    args.device, args.batch_size, args.num_workers,
-                )
-                del encoder; gc.collect(); torch.cuda.empty_cache()
-                emb_cache = {**existing, **new_cache}
-                torch.save(emb_cache, cache_path)
-                print(f"  Updated cache: {len(emb_cache):,} embeddings → {cache_path}")
-        else:
-            print(f"\nExtracting {len(needed_uuids):,} DICOM embeddings …")
-            encoder = load_encoder(args.checkpoint, args.device)
-            emb_cache = extract_embeddings(
-                encoder, needed_uuids, shard_index,
-                args.device, args.batch_size, args.num_workers,
-            )
-            del encoder; gc.collect(); torch.cuda.empty_cache()
-            torch.save(emb_cache, cache_path)
-            print(f"  Saved {len(emb_cache):,} embeddings → {cache_path}")
+        emb_cache = extract_embeddings_parallel(
+            checkpoint_path=args.checkpoint,
+            uuids=needed_uuids,
+            shard_index=shard_index,
+            shard_index_path=shard_index_path,
+            devices=devices,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            out_dir=out_dir,
+            save_every=args.save_every,
+        )
+
+    print(f"\n{len(emb_cache):,} embeddings available for probing")
 
     # ── Phase 2: Run probes ────────────────────────────────────────────────────
     all_results = []
