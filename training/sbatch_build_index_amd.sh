@@ -3,7 +3,8 @@
 #SBATCH --qos=gtqos
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
+#SBATCH --gpus-per-node=1
+#SBATCH --cpus-per-gpu=12
 #SBATCH --mem=32G
 #SBATCH --job-name=build_shard_index
 #SBATCH -t 03:00:00
