@@ -17,7 +17,8 @@ set -euo pipefail
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate echojepav2
 
-REPO_DIR="$HOME/project/EchoJEPAv2"
+# Resolve repo root from the script's own location (works from any CWD)
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_DIR"
 
 # ── ROCm / MIOpen cache ───────────────────────────────────────────────────────
@@ -26,18 +27,18 @@ export MIOPEN_CUSTOM_CACHE_DIR="$HOME/.cache/miopen_cache"
 mkdir -p "$MIOPEN_USER_DB_PATH" "$MIOPEN_CUSTOM_CACHE_DIR"
 mkdir -p training/amd_logs
 
-# ── Paths ─────────────────────────────────────────────────────────────────────
-# Update CHECKPOINT to the path of the trained model you want to evaluate.
-# Default: full 100% pretraining run on AMD (200 epochs).
-CHECKPOINT="/home/mohammad.yaqub/project/checkpoints/pretrain_icardio_336px_16f/latest.pt"
+# ── Paths  (all under /vast/users/mohammad.yaqub/project/) ───────────────────
+PROJECT="/vast/users/mohammad.yaqub/project"
 
-# Labels directory: copy output_with_labels/output/ to AMD or mount it.
-LABELS_DIR="$HOME/project/output_with_labels/output"
+CHECKPOINT="$PROJECT/checkpoints/pretrain_icardio_336px_16f/latest.pt"
 
-# Shard index: rebuild on AMD after pulling, pointing at AMD shard directories.
-# Run once:  python evaluation/build_index.py \
-#                --shard-dirs /home/mohammad.yaqub/project/preprocessed_by_alikhan_for_echojepa \
-#                --output evaluation/shard_index_amd.pkl
+# Labels directory: copy output_with_labels/output/ here or adjust the path.
+LABELS_DIR="$PROJECT/output_with_labels/output"
+
+# Shard index: build once with:
+#   python evaluation/build_index.py \
+#       --shard-dirs $PROJECT/preprocessed_by_alikhan_for_echojepa \
+#       --output evaluation/shard_index_amd.pkl
 SHARD_INDEX="$REPO_DIR/evaluation/shard_index_amd.pkl"
 
 RUN_NAME="100pct_amd_e200"
