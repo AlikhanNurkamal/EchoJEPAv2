@@ -61,7 +61,8 @@ python evaluation/eval_icardio.py \
     --device cuda:0 \
     --batch-size 128 \
     --num-workers 8 \
-    --max-dicoms-per-study 3
+    --max-dicoms-per-study 3 \
+    --train-fraction 1.0
 
 echo ""
 echo "Finished: $(date)"

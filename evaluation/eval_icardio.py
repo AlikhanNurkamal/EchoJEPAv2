@@ -406,7 +406,8 @@ def eval_regression_metrics(y_true, y_pred, n_bootstrap=1000):
 
 # ── Per-task evaluation ────────────────────────────────────────────────────────
 
-def run_task(task_name, task_cfg, study_dicom_map, emb_cache, out_dir, run_name, labels_dir):
+def run_task(task_name, task_cfg, study_dicom_map, emb_cache, out_dir, run_name, labels_dir,
+             train_fraction=1.0, seed=42):
     print(f"\n{'─'*60}")
     print(f"Task: {task_cfg['desc']}  [{task_name}]")
     task_out = out_dir / task_name
@@ -437,7 +438,15 @@ def run_task(task_name, task_cfg, study_dicom_map, emb_cache, out_dir, run_name,
     X_va, y_va = embeddings[mask_va], labels[mask_va]
     X_te, y_te = embeddings[mask_te], labels[mask_te]
 
-    print(f"  train={mask_tr.sum():,}  val={mask_va.sum():,}  test={mask_te.sum():,}")
+    # Optionally subsample training set to match pretraining data fraction
+    if train_fraction < 1.0 and len(X_tr) > 0:
+        rng = np.random.default_rng(seed)
+        n_keep = max(1, int(len(X_tr) * train_fraction))
+        idx = rng.choice(len(X_tr), n_keep, replace=False)
+        X_tr, y_tr = X_tr[idx], y_tr[idx]
+
+    print(f"  train={len(X_tr):,}  val={mask_va.sum():,}  test={mask_te.sum():,}"
+          + (f"  (sampled {train_fraction*100:.0f}%)" if train_fraction < 1.0 else ""))
 
     if len(X_tr) == 0 or len(X_te) == 0:
         print("  [skip] insufficient data")
@@ -531,6 +540,8 @@ def main():
     ap.add_argument("--device",      default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--batch-size",  type=int, default=128)
     ap.add_argument("--num-workers", type=int, default=4)
+    ap.add_argument("--train-fraction", type=float, default=1.0,
+                    help="Fraction of labeled TRAIN studies to use for probe training (e.g. 0.05 for 5pct run)")
     ap.add_argument("--max-dicoms-per-study", type=int, default=3,
                     help="Keep top-k DICOMs per study by n_frames (reduces extraction time)")
     ap.add_argument("--labels-dir",   default=str(_DEFAULT_LABELS_DIR),
@@ -628,6 +639,8 @@ def main():
             task_name, TASKS[task_name],
             study_dicom_map, emb_cache,
             out_dir, args.run_name, labels_dir,
+            train_fraction=args.train_fraction,
+            seed=args.seed,
         )
         if result:
             all_results.append(result)
