@@ -8,15 +8,15 @@
 #SBATCH --mem=32G
 #SBATCH --job-name=build_shard_index
 #SBATCH -t 03:00:00
-#SBATCH --output=training/amd_logs/build_index_%j.out
-#SBATCH --error=training/amd_logs/build_index_%j.err
+#SBATCH --output=/vast/users/mohammad.yaqub/project/EchoJEPAv2/training/amd_logs/build_index_%j.out
+#SBATCH --error=/vast/users/mohammad.yaqub/project/EchoJEPAv2/training/amd_logs/build_index_%j.err
 
 set -euo pipefail
 
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate echojepav2
 
-REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_DIR="/vast/users/mohammad.yaqub/project/EchoJEPAv2"
 cd "$REPO_DIR"
 
 mkdir -p training/amd_logs

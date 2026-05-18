@@ -8,8 +8,8 @@
 #SBATCH --mem=128G
 #SBATCH --job-name=echojepav2_eval
 #SBATCH -t 12:00:00
-#SBATCH --output=training/amd_logs/eval_%j.out
-#SBATCH --error=training/amd_logs/eval_%j.err
+#SBATCH --output=/vast/users/mohammad.yaqub/project/EchoJEPAv2/training/amd_logs/eval_%j.out
+#SBATCH --error=/vast/users/mohammad.yaqub/project/EchoJEPAv2/training/amd_logs/eval_%j.err
 
 set -euo pipefail
 
@@ -17,8 +17,7 @@ set -euo pipefail
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate echojepav2
 
-# Resolve repo root from the script's own location (works from any CWD)
-REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_DIR="/vast/users/mohammad.yaqub/project/EchoJEPAv2"
 cd "$REPO_DIR"
 
 # ── ROCm / MIOpen cache ───────────────────────────────────────────────────────
