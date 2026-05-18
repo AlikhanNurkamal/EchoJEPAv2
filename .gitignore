@@ -45,7 +45,10 @@ study_site_year.csv
 
 # Generated / machine-specific
 EchoJEPA_backup/
-evaluation/shard_index.pkl.dirs
+evaluation/shard_index*.pkl
+evaluation/shard_index*.pkl.dirs
+evaluation/embeddings/
+evaluation/results/
 labels/
 
 # Eval result folders (large images/outputs)
