@@ -44,8 +44,12 @@ class BioClinicalBERTEncoder(nn.Module):
                 "Install with: pip install transformers"
             )
 
-        logger.info(f"Loading BioClinicalBERT from '{model_name}'")
-        self.bert = AutoModel.from_pretrained(model_name)
+        # Bio_ClinicalBERT main branch only ships pytorch_model.bin which
+        # transformers ≥5.8 blocks (CVE-2025-32434 requires torch≥2.6 for .bin).
+        # PR #16 on the HF repo adds safetensors; use that revision.
+        revision = "refs/pr/16" if model_name == _BIOCLINICALBERT_MODEL else None
+        logger.info(f"Loading BioClinicalBERT from '{model_name}' (revision={revision})")
+        self.bert = AutoModel.from_pretrained(model_name, revision=revision)
         self.hidden_size: int = self.bert.config.hidden_size  # 768 for BERT-base
 
         # Freeze all BERT parameters
