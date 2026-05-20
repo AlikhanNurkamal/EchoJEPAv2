@@ -204,15 +204,21 @@ class DicomDataset(Dataset):
 
 # ── Encoder loading ────────────────────────────────────────────────────────────
 
+_EMBED_DIM_TO_ARCH = {768: "vit_base", 1024: "vit_large", 1280: "vit_huge", 384: "vit_small"}
+
+
+def _detect_arch(state):
+    """Infer ViT arch from embed_dim of the first block's norm weight."""
+    for key in ("blocks.0.norm1.weight", "blocks.0.ln1.weight"):
+        if key in state:
+            dim = state[key].shape[0]
+            return _EMBED_DIM_TO_ARCH.get(dim, "vit_large")
+    return "vit_large"
+
+
 def load_encoder(checkpoint_path, device):
     print(f"Loading encoder from {checkpoint_path}")
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-
-    encoder = vit.__dict__["vit_large"](
-        img_size=336, patch_size=16, num_frames=16, tubelet_size=2,
-        uniform_power=True, use_sdpa=True, use_silu=False, wide_silu=False,
-        use_activation_checkpointing=False, use_rope=True,
-    )
 
     if "state_dict" in ckpt:
         state = ckpt["state_dict"]
@@ -220,6 +226,14 @@ def load_encoder(checkpoint_path, device):
         key = "target_encoder" if "target_encoder" in ckpt else "encoder"
         state = {k.replace("module.", "").replace("backbone.", ""): v
                  for k, v in ckpt[key].items()}
+
+    arch = _detect_arch(state)
+    print(f"  detected arch: {arch}")
+    encoder = vit.__dict__[arch](
+        img_size=336, patch_size=16, num_frames=16, tubelet_size=2,
+        uniform_power=True, use_sdpa=True, use_silu=False, wide_silu=False,
+        use_activation_checkpointing=False, use_rope=True,
+    )
 
     epoch = ckpt.get("epoch", "?")
     del ckpt; gc.collect()

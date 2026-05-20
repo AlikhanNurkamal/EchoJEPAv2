@@ -31,7 +31,7 @@ logger = getLogger()
 
 # ── Study-info fields used to build the clinical text string ──────────────────
 
-_FREE_TEXT_FIELDS = [
+_ALL_FREE_TEXT_FIELDS = [
     "left_ventricle",
     "right_ventricle",
     "left_atrium",
@@ -53,9 +53,43 @@ _STRUCTURED_FIELDS = [
 ]
 _FALLBACK_TEXT = "No clinical information available."
 
+# Anatomy fields that are meaningfully visible in each echo view.
+# "conclusions" is always included so there is always a fallback sentence.
+_VIEW_FIELDS = {
+    "A4C":                  ["left_ventricle", "right_ventricle", "left_atrium", "right_atrium", "mitral_valve", "tricuspid_valve", "pericardium", "conclusions"],
+    "A4C Zoomed LV":        ["left_ventricle", "left_atrium", "mitral_valve", "conclusions"],
+    "A4C Zoomed RV":        ["right_ventricle", "right_atrium", "tricuspid_valve", "conclusions"],
+    "A4C Zoomed Mitral":    ["mitral_valve", "left_ventricle", "left_atrium", "conclusions"],
+    "A2C":                  ["left_ventricle", "left_atrium", "mitral_valve", "pericardium", "conclusions"],
+    "A2C Zoomed Mitral":    ["mitral_valve", "left_ventricle", "left_atrium", "conclusions"],
+    "A3C":                  ["left_ventricle", "aortic_valve", "mitral_valve", "aortic_root", "conclusions"],
+    "A5C":                  ["left_ventricle", "aortic_valve", "aortic_root", "left_atrium", "conclusions"],
+    "A5C Zoomed Aorta":     ["aortic_valve", "aortic_root", "left_ventricle", "conclusions"],
+    "PLAX Standard":        ["left_ventricle", "right_ventricle", "aortic_valve", "mitral_valve", "aortic_root", "pericardium", "conclusions"],
+    "PLAX Mitral Cusps":    ["mitral_valve", "left_ventricle", "left_atrium", "conclusions"],
+    "PLAX Aortic Cusps":    ["aortic_valve", "aortic_root", "left_ventricle", "conclusions"],
+    "PLAX Pericardial":     ["pericardium", "left_ventricle", "right_ventricle", "conclusions"],
+    "PSAX Mitral":          ["mitral_valve", "left_ventricle", "pericardium", "conclusions"],
+    "PSAX Papillary":       ["left_ventricle", "pericardium", "conclusions"],
+    "PSAX Apex":            ["left_ventricle", "pericardium", "conclusions"],
+    "PSAX Zoomed Out":      ["left_ventricle", "right_ventricle", "pericardium", "conclusions"],
+    "PSAXA Zoomed Aorta":   ["aortic_valve", "aortic_root", "pulmonic_valve", "tricuspid_valve", "conclusions"],
+    "Subcostal Standard":   ["right_ventricle", "right_atrium", "pericardium", "left_ventricle", "conclusions"],
+    "SUB IVC":              ["right_atrium", "pulmonary_artery", "conclusions"],
+    "SUB Short Axis":       ["right_ventricle", "right_atrium", "pericardium", "conclusions"],
+    "RVIT":                 ["right_ventricle", "right_atrium", "tricuspid_valve", "conclusions"],
+    "Suprasternal Notch":   ["aortic_arch", "pulmonary_artery", "aortic_root", "conclusions"],
+}
+
 
 def _build_text(metadata: dict) -> str:
-    """Build a single clinical string from a sample's metadata dict."""
+    """Build a clinical string from metadata, selecting fields by echo view.
+
+    For known views, only anatomy visible in that view is included.
+    Falls back to all free-text fields for unlabeled or unrecognised views.
+    If the selected fields are all empty, the full field set is tried, then the
+    global fallback string.
+    """
     parts = []
 
     age = metadata.get("age_at_visit")
@@ -72,7 +106,27 @@ def _build_text(metadata: dict) -> str:
         except Exception:
             pass
 
-    for field in _FREE_TEXT_FIELDS + _STRUCTURED_FIELDS:
+    view = metadata.get("view")
+    view = None if (view is None or str(view).strip().lower() == "nan") else str(view).strip()
+    free_text_fields = _VIEW_FIELDS.get(view, _ALL_FREE_TEXT_FIELDS)
+
+    anatomy_parts = []
+    for field in free_text_fields:
+        val = metadata.get(field)
+        if val and isinstance(val, str) and val.strip():
+            anatomy_parts.append(val.strip())
+
+    # If the view-specific fields were all empty, try the full set as fallback
+    if not anatomy_parts and free_text_fields is not _ALL_FREE_TEXT_FIELDS:
+        for field in _ALL_FREE_TEXT_FIELDS:
+            val = metadata.get(field)
+            if val and isinstance(val, str) and val.strip():
+                anatomy_parts.append(val.strip())
+
+    parts.extend(anatomy_parts)
+
+    # Structured tags are compact and view-independent — always append
+    for field in _STRUCTURED_FIELDS:
         val = metadata.get(field)
         if val and isinstance(val, str) and val.strip():
             parts.append(val.strip())

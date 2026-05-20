@@ -1,0 +1,124 @@
+# EchoJEPAv2 pretraining config — ViT-Base/16, local 2× RTX A6000, 5% iCardio
+#
+# Baseline experiment: same data/schedule as ViT-L 5pct run, smaller encoder.
+# Use train_dicoms_5pct.txt (157,281 DICOMs, seed=42) for direct comparability.
+#
+# Run with:
+#   PYTHONPATH=custom_src:EchoJEPA \
+#   ECHOJEPA_ALLOWED_DICOMS=training/train_dicoms_5pct.txt \
+#   ECHOJEPA_HOLDOUT_DICOMS=training/holdout_dicoms.txt \
+#   python EchoJEPA/app/main.py \
+#     --fname training/pretrain_icardio_336px_16f_vitb_5pct.yaml \
+#     --devices cuda:0 cuda:2
+
+app: vjepa
+
+# ── Output ────────────────────────────────────────────────────────────────────
+folder: /home/mashrafimonon/iCardio/checkpoints/pretrain/icardio_vitb16_336px_16f_local2gpu_5pct
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+data:
+  dataset_type: WebDatasetVideoDataset
+  datasets:
+    - /hdd1/ahmedaly/preprocessed_by_alikhan_for_echojepa
+    - /hdd2/ahmedaly/preprocessed_by_alikhan_for_echojepa
+  datasets_weights:
+    - 1.0
+    - 1.0
+  batch_size: 24           # per-GPU; 2 GPUs → global batch = 48
+  crop_size: 336
+  dataset_fpcs:
+    - 16
+  fps: 24
+  num_workers: 4
+  patch_size: 16
+  persistent_workers: true
+  pin_mem: false
+  tubelet_size: 2
+
+# ── Data augmentation ─────────────────────────────────────────────────────────
+data_aug:
+  auto_augment: false
+  motion_shift: false
+  random_resize_aspect_ratio:
+    - 0.9
+    - 1.1
+  random_resize_scale:
+    - 0.5
+    - 1.0
+  reprob: 0.0
+
+# ── Loss ──────────────────────────────────────────────────────────────────────
+loss:
+  loss_exp: 1.0
+
+# ── Masking ───────────────────────────────────────────────────────────────────
+mask:
+  - aspect_ratio: [0.75, 1.5]
+    full_complement: false
+    max_keep: null
+    max_temporal_keep: 1.0
+    num_blocks: 8
+    spatial_scale: [0.15, 0.15]
+    temporal_scale: [1.0, 1.0]
+  - aspect_ratio: [0.75, 1.5]
+    full_complement: false
+    max_keep: null
+    max_temporal_keep: 1.0
+    num_blocks: 2
+    spatial_scale: [0.70, 0.70]
+    temporal_scale: [1.0, 1.0]
+
+# ── Weights & Biases ──────────────────────────────────────────────────────────
+wandb:
+  enable: true
+  entity: anaatef9-mbzuai
+  project: echojepa-pretrain
+  name: icardio-vitb16-336px-16f-local2gpu-5pct
+
+# ── Meta ──────────────────────────────────────────────────────────────────────
+meta:
+  dtype: bfloat16
+  load_checkpoint: false
+  read_checkpoint: null
+  save_every_freq: -1
+  seed: 42
+  use_sdpa: true
+  checkpoints_to_keep: 2
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+model:
+  model_name: vit_base
+  pred_depth: 6
+  pred_embed_dim: 384
+  pred_num_heads: 12
+  uniform_power: true
+  use_activation_checkpointing: true
+  use_mask_tokens: true
+  num_mask_tokens: 10
+  use_rope: true
+  use_silu: false
+  zero_init_mask_tokens: true
+  compile_model: false
+
+# ── Optimization ──────────────────────────────────────────────────────────────
+optimization:
+  is_anneal: false
+  force_load_pretrain: false
+  anneal_ckpt: null
+
+  ema: [0.99925, 0.99925]
+  weight_decay: 0.04
+  final_weight_decay: 0.04
+
+  ipe: 200
+  ipe_scale: 1.25
+
+  # LR scaled from V-JEPA2 recipe: 5.25e-4 × (global_batch / 3072)
+  # 2 GPUs × 24 = 48 global batch → 5.25e-4 × (48/3072) = 8.2e-6
+  start_lr: 1.6e-6
+  lr: 8.2e-6
+  final_lr: 1.0e-7
+
+  warmup: 5
+  epochs: 30
